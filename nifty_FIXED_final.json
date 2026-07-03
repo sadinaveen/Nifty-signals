@@ -1,0 +1,153 @@
+{
+  "name": "Nifty F&O Signal Alert - FIXED",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "minutes", "minutesInterval": 3 }
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ (new Date().getUTCHours() * 60 + new Date().getUTCMinutes() + 330) % 1440 }}",
+              "rightValue": 555,
+              "operator": { "type": "number", "operation": "gte" }
+            },
+            {
+              "id": "cond2",
+              "leftValue": "={{ (new Date().getUTCHours() * 60 + new Date().getUTCMinutes() + 330) % 1440 }}",
+              "rightValue": 925,
+              "operator": { "type": "number", "operation": "lte" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": { "looseTypeValidation": true }
+      },
+      "name": "Market Hours Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [320, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=5m&range=1d",
+        "options": {}
+      },
+      "name": "Fetch 5min Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [560, 180]
+    },
+    {
+      "parameters": {
+        "url": "https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=3m&range=1d",
+        "options": {}
+      },
+      "name": "Fetch 3min Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [560, 460]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const result = $input.first().json;\nconst quotes = result.chart.result[0].indicators.quote[0];\nconst closes = quotes.close.filter(v => v !== null);\nconst highs = quotes.high.filter(v => v !== null);\nconst lows = quotes.low.filter(v => v !== null);\n\nif (closes.length < 5) return [{ json: { signal: '', timeframe: '5min' } }];\n\nconst last = closes[closes.length - 1];\nconst pH = highs[highs.length - 2];\nconst pL = lows[lows.length - 2];\nconst pC = closes[closes.length - 2];\n\nconst PP = (pH + pL + pC) / 3;\nconst R1 = (2 * PP) - pL;\nconst R2 = PP + (pH - pL);\nconst S1 = (2 * PP) - pH;\nconst S2 = PP - (pH - pL);\n\nfunction ema(data, p) {\n  const k = 2 / (p + 1);\n  let e = data[0];\n  for (let i = 1; i < data.length; i++) e = data[i] * k + e * (1 - k);\n  return e;\n}\nconst e9 = ema(closes.slice(-20), 9);\nconst e20 = ema(closes.slice(-20), 20);\n\nconst sTop = Math.max(...highs.slice(-5));\nconst sBot = sTop - 40;\nconst dBot = Math.min(...lows.slice(-5));\nconst dTop = dBot + 40;\n\nlet signal = '';\nlet entry = 0, t1 = 0, t2 = 0, sl = 0, zone = '';\n\nif (last <= S1 + 20 && last >= S1 - 20 && e9 > e20 && last >= dBot - 10 && last <= dTop + 20) {\n  signal = 'BUY - CE Buy or PE Sell';\n  entry = Math.round(last);\n  sl = Math.round(S2 - 15);\n  t1 = Math.round(PP);\n  t2 = Math.round(R1);\n  zone = 'DEMAND ZONE near S1';\n}\n\nif (last >= R1 - 20 && last <= R1 + 20 && e9 < e20 && last >= sBot - 20 && last <= sTop) {\n  signal = 'SELL - PE Buy or CE Sell';\n  entry = Math.round(last);\n  sl = Math.round(R2 + 15);\n  t1 = Math.round(PP);\n  t2 = Math.round(S1);\n  zone = 'SUPPLY ZONE near R1';\n}\n\nconst IST = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });\n\nreturn [{ json: { timeframe: '5min', signal, entry, target1: t1, target2: t2, stopLoss: sl, zone, PP: Math.round(PP), R1: Math.round(R1), R2: Math.round(R2), S1: Math.round(S1), S2: Math.round(S2), ema9: Math.round(e9), ema20: Math.round(e20), price: Math.round(last), time: IST } }];"
+      },
+      "name": "Calculate 5min Signal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 180]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const result = $input.first().json;\nconst quotes = result.chart.result[0].indicators.quote[0];\nconst closes = quotes.close.filter(v => v !== null);\nconst highs = quotes.high.filter(v => v !== null);\nconst lows = quotes.low.filter(v => v !== null);\n\nif (closes.length < 5) return [{ json: { signal: '', timeframe: '3min' } }];\n\nconst last = closes[closes.length - 1];\nconst pH = highs[highs.length - 2];\nconst pL = lows[lows.length - 2];\nconst pC = closes[closes.length - 2];\n\nconst PP = (pH + pL + pC) / 3;\nconst R1 = (2 * PP) - pL;\nconst R2 = PP + (pH - pL);\nconst S1 = (2 * PP) - pH;\nconst S2 = PP - (pH - pL);\n\nfunction ema(data, p) {\n  const k = 2 / (p + 1);\n  let e = data[0];\n  for (let i = 1; i < data.length; i++) e = data[i] * k + e * (1 - k);\n  return e;\n}\nconst e9 = ema(closes.slice(-20), 9);\nconst e20 = ema(closes.slice(-20), 20);\n\nconst sTop = Math.max(...highs.slice(-5));\nconst sBot = sTop - 30;\nconst dBot = Math.min(...lows.slice(-5));\nconst dTop = dBot + 30;\n\nlet signal = '';\nlet entry = 0, t1 = 0, t2 = 0, sl = 0, zone = '';\n\nif (last <= S1 + 15 && last >= S1 - 15 && e9 > e20 && last >= dBot - 10 && last <= dTop + 15) {\n  signal = 'BUY - CE Buy or PE Sell';\n  entry = Math.round(last);\n  sl = Math.round(S2 - 10);\n  t1 = Math.round(PP);\n  t2 = Math.round(R1);\n  zone = 'DEMAND ZONE near S1';\n}\n\nif (last >= R1 - 15 && last <= R1 + 15 && e9 < e20 && last >= sBot - 15 && last <= sTop) {\n  signal = 'SELL - PE Buy or CE Sell';\n  entry = Math.round(last);\n  sl = Math.round(R2 + 10);\n  t1 = Math.round(PP);\n  t2 = Math.round(S1);\n  zone = 'SUPPLY ZONE near R1';\n}\n\nconst IST = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });\n\nreturn [{ json: { timeframe: '3min', signal, entry, target1: t1, target2: t2, stopLoss: sl, zone, PP: Math.round(PP), R1: Math.round(R1), R2: Math.round(R2), S1: Math.round(S1), S2: Math.round(S2), ema9: Math.round(e9), ema20: Math.round(e20), price: Math.round(last), time: IST } }];"
+      },
+      "name": "Calculate 3min Signal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 460]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const all = $input.all();\nlet data5 = null;\nlet data3 = null;\n\nfor (const item of all) {\n  if (item.json.timeframe === '5min') data5 = item.json;\n  if (item.json.timeframe === '3min') data3 = item.json;\n}\n\nconst has5 = data5 && data5.signal !== '';\nconst has3 = data3 && data3.signal !== '';\n\nif (!has5 && !has3) return [];\n\nconst IST = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });\n\nlet subject = 'Nifty F&O Alert';\nif (has5 && has3) subject = 'STRONG Signal - ' + data5.signal + ' (3m+5m Confirm!)';\nelse if (has5) subject = 'Nifty 5min - ' + data5.signal + ' at ' + data5.price;\nelse if (has3) subject = 'Nifty 3min - ' + data3.signal + ' at ' + data3.price;\n\nlet message = 'NIFTY F&O SCALPING ALERT\\nTime: ' + IST + '\\n\\n';\n\nif (has5 && has3) message += '*** STRONG SIGNAL - BOTH TIMEFRAMES CONFIRM ***\\n\\n';\n\nif (has5) {\n  message += '=============================\\n5 MIN SIGNAL\\n=============================\\n';\n  message += 'Signal: ' + data5.signal + '\\nEntry: ' + data5.entry + '\\nTarget 1: ' + data5.target1 + '\\nTarget 2: ' + data5.target2 + '\\nStop Loss: ' + data5.stopLoss + '\\nZone: ' + data5.zone + '\\n\\n';\n  message += 'PP: ' + data5.PP + ' | R1: ' + data5.R1 + ' | R2: ' + data5.R2 + '\\nS1: ' + data5.S1 + ' | S2: ' + data5.S2 + '\\nEMA9: ' + data5.ema9 + ' | EMA20: ' + data5.ema20 + '\\nPrice: ' + data5.price + '\\n\\n';\n}\n\nif (has3) {\n  message += '=============================\\n3 MIN SIGNAL\\n=============================\\n';\n  message += 'Signal: ' + data3.signal + '\\nEntry: ' + data3.entry + '\\nTarget 1: ' + data3.target1 + '\\nTarget 2: ' + data3.target2 + '\\nStop Loss: ' + data3.stopLoss + '\\nZone: ' + data3.zone + '\\n\\n';\n  message += 'PP: ' + data3.PP + ' | R1: ' + data3.R1 + ' | R2: ' + data3.R2 + '\\nS1: ' + data3.S1 + ' | S2: ' + data3.S2 + '\\nEMA9: ' + data3.ema9 + ' | EMA20: ' + data3.ema20 + '\\nPrice: ' + data3.price + '\\n\\n';\n}\n\nmessage += '-----------------------------\\nAlways use Stop Loss! Paper trade first!';\n\nreturn [{ json: { subject, message } }];"
+      },
+      "name": "Combine Signals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "YOUR_EMAIL@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.message }}",
+        "options": {}
+      },
+      "name": "Send Gmail Alert",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1280, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [ { "node": "Market Hours Check", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Market Hours Check": {
+      "main": [
+        [
+          { "node": "Fetch 5min Data", "type": "main", "index": 0 },
+          { "node": "Fetch 3min Data", "type": "main", "index": 0 }
+        ],
+        []
+      ]
+    },
+    "Fetch 5min Data": {
+      "main": [
+        [ { "node": "Calculate 5min Signal", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Fetch 3min Data": {
+      "main": [
+        [ { "node": "Calculate 3min Signal", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Calculate 5min Signal": {
+      "main": [
+        [ { "node": "Combine Signals", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Calculate 3min Signal": {
+      "main": [
+        [ { "node": "Combine Signals", "type": "main", "index": 1 } ]
+      ]
+    },
+    "Combine Signals": {
+      "main": [
+        [ { "node": "Send Gmail Alert", "type": "main", "index": 0 } ]
+      ]
+    }
+  }
+}
